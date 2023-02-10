@@ -39,25 +39,80 @@ write_restart <- function(folder = ".", model, restart_list) {
     zi_var_names <- list("tke", "zi", "tkeo", "eps", "num", "nuh", "nus")
 
     outfile <- file.path(folder, model, "restart.nc")
-    if(!file.exists(outfile)) {
-      stop(outfile, " does not exist!")
-    }
+    #if(!file.exists(outfile)) {
+    #  stop(outfile, " does not exist!")
+    #}
     yaml_file <- file.path(folder, model, "gotm.yaml")
     yaml <- gotmtools::read_yaml(yaml_file)
     yaml$restart$load <- TRUE
     gotmtools::write_yaml(yaml, yaml_file)
 
-    nc <- ncdf4::nc_open(outfile, write = TRUE)
+
+    if(yaml$location$longitude < 0){
+      yaml$location$longitude <- 360 + yaml$location$longitude
+    }
+
+    londim <- ncdf4::ncdim_def("lon",units = "degrees_east",longname = "longitude", vals = yaml$location$longitude)
+    latdim <- ncdf4::ncdim_def("lat",units = "degrees_north",longname = "latitude", vals = yaml$location$latitude)
+    timedim <- ncdf4::ncdim_def("time", units = paste0("seconds since ", yaml$time$start), calendar = "standard", vals = 1)
+
+    zdim <- ncdf4::ncdim_def("z",units = "m", longname = 'depth', vals = as.double(restart_list$z_vars$z))
+    zidim <- ncdf4::ncdim_def("zi",units = "m", longname = 'interface depth', vals = as.double(restart_list$zi_vars$zi))
+
+    fillvalue <- 1e32
+
+    def_list <- list()
+
+    list(londim, latdim, zdim, timedim)
+    def_list[[1]] <- ncdf4::ncvar_def("temp","degC",list(londim, latdim, zdim, timedim),missval = fillvalue, longname = 'temperature',prec="single")
+    def_list[[2]]  <- ncdf4::ncvar_def("salt","g_kg", list(londim, latdim, zdim, timedim),missval = fillvalue,longname = 'salt',prec="single")
+    def_list[[3]]  <- ncdf4::ncvar_def("u","m/s", list(londim, latdim, zdim, timedim),missval = fillvalue, longname = 'x-velocity',prec="single")
+    def_list[[4]]  <- ncdf4::ncvar_def("uo","m/s", list(londim, latdim, zdim, timedim),missval = fillvalue, longname = 'x-velocity - old time step',prec="single")
+    def_list[[5]]  <- ncdf4::ncvar_def("v","m/s", list(londim, latdim, zdim, timedim),missval = fillvalue, longname = 'y-velocity',prec="single")
+    def_list[[6]]  <- ncdf4::ncvar_def("vo","m/s", list(londim, latdim, zdim, timedim),missval = fillvalue, longname = 'y-velocity - old time step',prec="single")
+    def_list[[7]]  <- ncdf4::ncvar_def("xP","m2/s3", list(londim, latdim, zdim, timedim),missval = fillvalue, longname = 'extra turbulence production',prec="single")
+    def_list[[8]]  <- ncdf4::ncvar_def("h","m", list(londim, latdim, zdim, timedim),missval = fillvalue, longname = 'layer thickness',prec="single")
+    def_list[[9]]  <- ncdf4::ncvar_def("ho","m", list(londim, latdim, zdim, timedim),missval = fillvalue, longname = 'layer thickness - old time step',prec="single")
+    def_list[[10]]  <- ncdf4::ncvar_def("tke","m2/s2", list(londim, latdim, zidim, timedim),missval = fillvalue, longname = "turbulent kinetic energy",prec="single")
+    def_list[[11]]  <- ncdf4::ncvar_def("tkeo","m2/s2", list(londim, latdim, zidim, timedim),missval = fillvalue, longname = "turbulent kinetic energy - old time step",prec="single")
+    def_list[[12]]  <- ncdf4::ncvar_def("eps","m2/s3", list(londim, latdim, zidim, timedim),missval = fillvalue, longname = "energy dissipation rate",prec="single")
+    def_list[[13]]  <- ncdf4::ncvar_def("num","m2/s", list(londim, latdim, zidim, timedim),missval = fillvalue, longname = "turbulent diffusivity of momentum",prec="single")
+    def_list[[14]]  <- ncdf4::ncvar_def("nuh","m2/s", list(londim, latdim, zidim, timedim),missval = fillvalue, longname = "turbulent diffusivity of heat",prec="single")
+    def_list[[15]]  <- ncdf4::ncvar_def("nus","m2/s", list(londim, latdim, zidim, timedim),missval = fillvalue, longname = "turbulent diffusivity of salt",prec="single")
+
+    if(file.exists(outfile)){
+      unlink(outfile)
+    }
+
+    ncout <- ncdf4::nc_create(outfile, def_list)
     on.exit({
-      ncdf4::nc_close(nc)
+      ncdf4::nc_close(ncout)
     })
 
-    lapply(z_var_names, function(x) {
-      nc <- ncdf4::ncvar_put(nc = nc, varid = x, vals = restart_list$z_vars[[x]])
-    })
-    lapply(zi_var_names, function(x) {
-      nc <- ncdf4::ncvar_put(nc = nc, varid = x, vals = restart_list$zi_vars[[x]])
-    })
+    ncdf4::ncvar_put(ncout, def_list[[1]] , restart_list$z_vars$temp)
+    ncdf4::ncvar_put(ncout, def_list[[2]] , restart_list$z_vars$salt)
+    ncdf4::ncvar_put(ncout, def_list[[3]] , restart_list$z_vars$u)
+    ncdf4::ncvar_put(ncout, def_list[[4]] , restart_list$z_vars$uo)
+    ncdf4::ncvar_put(ncout, def_list[[5]] , restart_list$z_vars$v)
+    ncdf4::ncvar_put(ncout, def_list[[6]] , restart_list$z_vars$vo)
+    ncdf4::ncvar_put(ncout, def_list[[7]] , restart_list$z_vars$xP)
+    ncdf4::ncvar_put(ncout, def_list[[8]] , restart_list$z_vars$h)
+    ncdf4::ncvar_put(ncout, def_list[[9]] , restart_list$z_vars$ho)
+    ncdf4::ncvar_put(ncout, def_list[[10]] , restart_list$zi_vars$tke)
+    ncdf4::ncvar_put(ncout, def_list[[11]] , restart_list$zi_vars$tkeo)
+    ncdf4::ncvar_put(ncout, def_list[[12]] , restart_list$zi_vars$eps)
+    ncdf4::ncvar_put(ncout, def_list[[13]] , restart_list$zi_vars$num)
+    ncdf4::ncvar_put(ncout, def_list[[14]] , restart_list$zi_vars$nuh)
+    ncdf4::ncvar_put(ncout, def_list[[15]] , restart_list$zi_vars$nus)
+
+
+
+    #lapply(z_var_names, function(x) {
+    #  nc <- ncdf4::ncvar_put(nc = nc, varid = x, vals = restart_list$z_vars[[x]])
+    #})
+    #lapply(zi_var_names, function(x) {
+    #  nc <- ncdf4::ncvar_put(nc = nc, varid = x, vals = restart_list$zi_vars[[x]])
+    #})
   }
 
   # Simstrat ----
